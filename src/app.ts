@@ -9,11 +9,22 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import routes from './routes';
 import { errorHandler } from './middlewares/errorHandler';
+import { connectDatabase } from './config/database';
 
 const app = express();
 
 // ─── Trust proxy (required behind ALB / API Gateway / CloudFront) ────────
 app.set('trust proxy', 1);
+
+// ─── Ensure DB is connected (serverless cold-start safety) ───────────────
+app.use(async (_req, _res, next) => {
+  try {
+    await connectDatabase();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── Security & parsing ──────────────────────────────────────────────────
 app.use(helmet());
