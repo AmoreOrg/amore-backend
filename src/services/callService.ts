@@ -8,9 +8,10 @@
  * 4. Call ends → finalize session → record earnings
  */
 import { v4 as uuidv4 } from 'uuid';
-import { CallSession, CallEvent, CallerProfile } from '../models';
+import { CallSession, CallEvent, CallerProfile, User } from '../models';
 import * as walletService from './walletService';
 import { generateRtcToken } from '../utils/agoraToken';
+import { notifyIncomingCall } from '../websocket/socketServer';
 import { config } from '../config';
 import { ApiError } from '../utils/ApiError';
 import logger from '../utils/logger';
@@ -58,6 +59,18 @@ export async function initiateCall(customerId: string, callerProfileId: string, 
   });
 
   logger.info(`Call initiated: ${session._id} | Customer: ${customerId} → Caller: ${callerProfile.userId}`);
+
+  // 7. Notify caller via WebSocket
+  const customer = await User.findById(customerId).select('name');
+  notifyIncomingCall(callerProfile.userId.toString(), {
+    callId: session._id.toString(),
+    customerId,
+    customerName: customer?.name || 'Unknown',
+    callType,
+    pricePerMinute: callerProfile.pricePerMinute,
+    callerRtcToken: callerToken.rtcToken,
+    channelName,
+  });
 
   return {
     callId: session._id,
