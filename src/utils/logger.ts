@@ -1,0 +1,25 @@
+/**
+ * Winston logger — structured JSON logging with console transport.
+ */
+import winston from 'winston';
+import { config } from '../config';
+
+const logger = winston.createLogger({
+  level: config.env === 'production' ? 'info' : 'debug',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json(),
+  ),
+  defaultMeta: { service: 'amore-backend' },
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple(),
+      ),
+    }),
+  ],
+});
+
+export default logger;
