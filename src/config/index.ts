@@ -10,7 +10,7 @@ export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
 
   // MongoDB
-  mongoUri: process.env.MONGODB_URI || 'mongodb+srv://talentraze:FRoIULU0RweasgZQ@amore-local.vcxxfz3.mongodb.net/amore?appName=amore-local',
+  mongoUri: process.env.MONGODB_URI || 'mongodb+srv://talentraze:FRoIULU0RweasgZQ@amore-local.vcxxfz3.mongodb.net/test?appName=amore-local',
 
   // Redis
   redis: {
