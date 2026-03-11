@@ -117,8 +117,7 @@ export function initWebSocket(httpServer: HttpServer): Server {
 /**
  * Get the Socket.io server instance.
  */
-export function getIO(): Server {
-  if (!io) throw new Error('WebSocket server not initialized');
+export function getIO(): Server | undefined {
   return io;
 }
 
@@ -126,6 +125,10 @@ export function getIO(): Server {
  * Send an event to a specific user by their userId.
  */
 export function emitToUser(userId: string, event: string, data: any): void {
+  if (!io) {
+    logger.warn(`WebSocket not initialized — cannot emit '${event}' to user ${userId}`);
+    return;
+  }
   io.to(`user:${userId}`).emit(event, data);
 }
 
@@ -179,5 +182,6 @@ export function emitInsufficientBalance(customerId: string, callerId: string, ca
  * Check if a user is currently connected via WebSocket.
  */
 export function isUserOnline(userId: string): boolean {
+  if (!io) return false;
   return onlineUsers.has(userId);
 }

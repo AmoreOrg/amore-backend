@@ -27,7 +27,11 @@ export const getProfileById = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const toggleOnline = asyncHandler(async (req: Request, res: Response) => {
-  const { isOnline } = req.body;
+  const isOnline = req.body?.isOnline;
+  if (typeof isOnline !== 'boolean') {
+    res.status(400).json({ success: false, message: 'isOnline (boolean) is required' });
+    return;
+  }
   const profile = await callerService.toggleOnlineStatus(req.user!.userId, isOnline);
   res.json({ success: true, data: profile });
 });

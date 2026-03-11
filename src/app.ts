@@ -47,7 +47,10 @@ app.use('/api', limiter);
 
 // ─── API routes ──────────────────────────────────────────────────────────
 app.use('/api/v1', routes);
-
+// ─── Socket.io fallback for serverless ───────────────────────────────
+app.use('/socket.io', (_req, res) => {
+  res.status(400).json({ success: false, message: 'WebSocket not supported in serverless mode' });
+});
 // ─── 404 handler ─────────────────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
