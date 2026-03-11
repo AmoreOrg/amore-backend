@@ -19,12 +19,12 @@ function generateTokens(user: IUser): { accessToken: string; refreshToken: strin
   const payload: AuthPayload = { userId: user._id.toString(), role: user.role };
 
   const accessToken = jwt.sign(payload, config.jwt.accessSecret, {
-    expiresIn: config.jwt.accessExpiry as string,
-  });
+    expiresIn: config.jwt.accessExpiry,
+  } as jwt.SignOptions);
 
   const refreshToken = jwt.sign(payload, config.jwt.refreshSecret, {
-    expiresIn: config.jwt.refreshExpiry as string,
-  });
+    expiresIn: config.jwt.refreshExpiry,
+  } as jwt.SignOptions);
 
   return { accessToken, refreshToken };
 }
