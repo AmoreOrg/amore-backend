@@ -12,6 +12,9 @@ import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
 
+// ─── Trust proxy (required behind ALB / API Gateway / CloudFront) ────────
+app.set('trust proxy', 1);
+
 // ─── Security & parsing ──────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors());

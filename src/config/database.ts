@@ -7,7 +7,10 @@ import logger from '../utils/logger';
 
 export const connectDatabase = async (): Promise<void> => {
   try {
-    await mongoose.connect(config.mongoUri);
+    await mongoose.connect(config.mongoUri, {
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+    });
     logger.info('MongoDB connected successfully');
   } catch (error) {
     logger.error('MongoDB connection failed', error);
