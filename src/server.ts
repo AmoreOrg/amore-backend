@@ -15,8 +15,13 @@ async function bootstrap() {
   await connectDatabase();
 
   // 2. Verify Redis connection
-  await redis.ping();
-  logger.info('Redis ping successful');
+  try {
+    await redis.connect();
+    await redis.ping();
+    logger.info('Redis ping successful');
+  } catch (err) {
+    logger.warn('Redis not available — billing worker and queues will be disabled');
+  }
 
   // 3. Create HTTP server and attach Express
   const httpServer = http.createServer(app);
@@ -24,8 +29,12 @@ async function bootstrap() {
   // 4. Initialize WebSocket server
   initWebSocket(httpServer);
 
-  // 5. Start billing worker
-  await startBillingWorker();
+  // 5. Start billing worker (only if Redis is connected)
+  try {
+    await startBillingWorker();
+  } catch (err) {
+    logger.warn('Billing worker failed to start:', err);
+  }
 
   // 6. Start listening
   httpServer.listen(config.port, () => {

@@ -9,6 +9,7 @@ import callRoutes from './callRoutes';
 import payoutRoutes from './payoutRoutes';
 import reviewRoutes from './reviewRoutes';
 import notificationRoutes from './notificationRoutes';
+import adminRoutes from './admin';
 
 const router = Router();
 
@@ -19,6 +20,9 @@ router.use('/calls', callRoutes);
 router.use('/payouts', payoutRoutes);
 router.use('/reviews', reviewRoutes);
 router.use('/notifications', notificationRoutes);
+
+// Admin portal routes
+router.use('/admin', adminRoutes);
 
 // Health check
 router.get('/health', (_req, res) => {

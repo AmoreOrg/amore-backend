@@ -5,7 +5,7 @@
 import mongoose from 'mongoose';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { Wallet, WalletTransaction, TransactionType, CallSession } from '../models';
+import { Wallet, WalletTransaction, TransactionType, CallSession, LedgerEntry } from '../models';
 import { ApiError } from '../utils/ApiError';
 import { config } from '../config';
 
@@ -103,6 +103,17 @@ export async function verifyAndDeposit(
     description: `Wallet top-up via Razorpay`,
     referenceId: razorpayPaymentId,
     referenceType: 'razorpay_payment',
+  });
+
+  // Immutable ledger entry
+  await LedgerEntry.create({
+    userId,
+    type: 'deposit',
+    amountPaise: Math.round(amount * 100),
+    balanceAfterPaise: Math.round(wallet.balance * 100),
+    referenceId: razorpayPaymentId,
+    referenceType: 'razorpay_payment',
+    description: `Wallet top-up — ₹${amount}`,
   });
 
   return { balance: wallet.balance };

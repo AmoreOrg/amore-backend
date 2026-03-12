@@ -8,12 +8,14 @@ import logger from '../utils/logger';
 const redisUrl = process.env.REDIS_URL;
 
 export const redis = redisUrl
-  ? new Redis(redisUrl, { maxRetriesPerRequest: null })
+  ? new Redis(redisUrl, { maxRetriesPerRequest: null, connectTimeout: 10000, lazyConnect: true })
   : new Redis({
       host: config.redis.host,
       port: config.redis.port,
       password: config.redis.password,
       maxRetriesPerRequest: null, // required by BullMQ
+      connectTimeout: 10000,
+      lazyConnect: true,
     });
 
 redis.on('connect', () => logger.info('Redis connected'));

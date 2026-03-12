@@ -4,6 +4,13 @@
  */
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
+export interface IVerificationStep {
+  status: 'pending' | 'verified' | 'rejected' | 'scheduled' | 'completed' | 'cancelled' | 'postponed';
+  notes?: string;
+  scheduledAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface ICallerProfile extends Document {
   userId: Types.ObjectId;
   bio: string;
@@ -15,9 +22,28 @@ export interface ICallerProfile extends Document {
   rating: number;
   totalCalls: number;
   totalEarnings: number;
+  verification: {
+    documents: IVerificationStep;
+    aadhar: IVerificationStep;
+    interview: IVerificationStep;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
+
+const VerificationStepSchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: ['pending', 'verified', 'rejected', 'scheduled', 'completed', 'cancelled', 'postponed'],
+      default: 'pending',
+    },
+    notes: { type: String },
+    scheduledAt: { type: Date },
+    updatedAt: { type: Date },
+  },
+  { _id: false },
+);
 
 const CallerProfileSchema = new Schema<ICallerProfile>(
   {
@@ -31,6 +57,14 @@ const CallerProfileSchema = new Schema<ICallerProfile>(
     rating: { type: Number, default: 0, min: 0, max: 5 },
     totalCalls: { type: Number, default: 0 },
     totalEarnings: { type: Number, default: 0 },
+    verification: {
+      type: {
+        documents: { type: VerificationStepSchema, default: () => ({}) },
+        aadhar: { type: VerificationStepSchema, default: () => ({}) },
+        interview: { type: VerificationStepSchema, default: () => ({}) },
+      },
+      default: () => ({}),
+    },
   },
   { timestamps: true },
 );

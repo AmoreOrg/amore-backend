@@ -11,3 +11,13 @@ export { Review, IReview } from './Review';
 export { PayoutRequest, IPayoutRequest, PayoutStatus } from './PayoutRequest';
 export { Notification, INotification } from './Notification';
 export { ProfileUpdateRequest, IProfileUpdateRequest, ProfileUpdateStatus } from './ProfileUpdateRequest';
+export { LedgerEntry, ILedgerEntry, LedgerType } from './LedgerEntry';
+export { ChatMessage, IChatMessage } from './ChatMessage';
+
+// Admin / RBAC models
+export { Permission, IPermission } from './Permission';
+export { Role, IRole } from './Role';
+export { AdminUser, IAdminUser } from './AdminUser';
+export { AuditLog, IAuditLog } from './AuditLog';
+export { Report, IReport, ReportStatus } from './Report';
+export { SystemConfig, ISystemConfig } from './SystemConfig';

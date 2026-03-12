@@ -20,6 +20,9 @@ import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { AuthPayload } from '../middlewares/auth';
+import { CallSession } from '../models';
+import { ChatMessage } from '../models/ChatMessage';
+import * as callService from '../services/callService';
 import logger from '../utils/logger';
 
 let io: Server;
@@ -80,12 +83,20 @@ export function initWebSocket(httpServer: HttpServer): Server {
     });
 
     // ─── Call signaling events ──────────────────────────────────────
-    socket.on('call_accept', (data: { callId: string }) => {
+    socket.on('call_accept', async (data: { callId: string; customerId?: string }) => {
       logger.info(`Call accepted via WS: ${data.callId}`);
-      // Notify customer
-      const session = data as any;
-      if (session.customerId) {
-        io.to(`user:${session.customerId}`).emit('call_accept', data);
+      // Resolve the customer from data or by looking up the session
+      let customerId = data.customerId;
+      if (!customerId) {
+        try {
+          const session = await CallSession.findById(data.callId).lean();
+          customerId = session?.customerId?.toString();
+        } catch (err: any) {
+          logger.error(`Failed to look up session for call_accept: ${err.message}`);
+        }
+      }
+      if (customerId) {
+        io.to(`user:${customerId}`).emit('call_accept', { callId: data.callId });
       }
     });
 
@@ -94,15 +105,123 @@ export function initWebSocket(httpServer: HttpServer): Server {
       io.to(`user:${data.customerId}`).emit('call_reject', data);
     });
 
-    socket.on('call_end', (data: { callId: string; targetUserId: string }) => {
+    socket.on('call_end', async (data: { callId: string; targetUserId: string }) => {
       logger.info(`Call end via WS: ${data.callId}`);
+      try {
+        await callService.endCall(data.callId, userId, 'user_ended');
+      } catch (err: any) {
+        logger.error(`Failed to end call ${data.callId} via WS: ${err.message}`);
+      }
       io.to(`user:${data.targetUserId}`).emit('call_end', data);
     });
 
+    // ─── In-call chat ──────────────────────────────────────────────────
+    socket.on('chat_message', async (data: { callId: string; message: string }, ack?: (res: any) => void) => {
+      const msg = (data.message || '').trim();
+      if (!msg || msg.length > 1000) {
+        if (ack) ack({ success: false, error: 'Invalid message' });
+        return;
+      }
+
+      try {
+        // Verify the sender is a participant of the call
+        const session = await CallSession.findById(data.callId).lean();
+        if (!session) {
+          if (ack) ack({ success: false, error: 'Call not found' });
+          return;
+        }
+
+        const callerId = session.callerId.toString();
+        const customerId = session.customerId.toString();
+        if (userId !== callerId && userId !== customerId) {
+          if (ack) ack({ success: false, error: 'Not a participant' });
+          return;
+        }
+
+        // Persist the message
+        const chatMsg = await ChatMessage.create({
+          callSessionId: data.callId,
+          senderId: userId,
+          message: msg,
+        });
+
+        const payload = {
+          _id: chatMsg._id.toString(),
+          callId: data.callId,
+          senderId: userId,
+          message: msg,
+          createdAt: chatMsg.createdAt.toISOString(),
+        };
+
+        // Deliver to the other participant
+        const recipientId = userId === callerId ? customerId : callerId;
+        io.to(`user:${recipientId}`).emit('chat_message', payload);
+
+        if (ack) ack({ success: true, data: payload });
+      } catch (err: any) {
+        logger.error(`chat_message error: ${err.message}`);
+        if (ack) ack({ success: false, error: 'Failed to send message' });
+      }
+    });
+
+    socket.on('chat_history', async (data: { callId: string }, ack?: (res: any) => void) => {
+      try {
+        const session = await CallSession.findById(data.callId).lean();
+        if (!session) {
+          if (ack) ack({ success: false, error: 'Call not found' });
+          return;
+        }
+
+        const callerId = session.callerId.toString();
+        const customerId = session.customerId.toString();
+        if (userId !== callerId && userId !== customerId) {
+          if (ack) ack({ success: false, error: 'Not a participant' });
+          return;
+        }
+
+        const messages = await ChatMessage.find({ callSessionId: data.callId })
+          .sort({ createdAt: 1 })
+          .limit(200)
+          .lean();
+
+        if (ack) ack({ success: true, data: messages });
+      } catch (err: any) {
+        logger.error(`chat_history error: ${err.message}`);
+        if (ack) ack({ success: false, error: 'Failed to fetch history' });
+      }
+    });
+
     // ─── Disconnect ────────────────────────────────────────────────
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       onlineUsers.delete(userId);
       logger.info(`WS disconnected: ${userId}`);
+
+      // End any active calls this user is in
+      try {
+        const activeCalls = await CallSession.find({
+          $or: [{ callerId: userId }, { customerId: userId }],
+          status: { $in: ['active', 'ringing'] },
+        });
+        for (const session of activeCalls) {
+          try {
+            await callService.endCall(session._id.toString(), userId, 'disconnect');
+            const otherUserId =
+              session.callerId.toString() === userId
+                ? session.customerId.toString()
+                : session.callerId.toString();
+            io.to(`user:${otherUserId}`).emit('call_end', {
+              callId: session._id.toString(),
+              reason: 'disconnect',
+            });
+            logger.info(`Ended active call ${session._id} on disconnect of ${userId}`);
+          } catch (err: any) {
+            logger.error(`Failed to end call ${session._id} on disconnect: ${err.message}`);
+          }
+        }
+      } catch (err: any) {
+        logger.error(`Error cleaning up calls on disconnect for ${userId}: ${err.message}`);
+      }
+
       // If caller, broadcast offline status
       if (user.role === 'caller') {
         io.emit('caller_offline', { callerId: userId });

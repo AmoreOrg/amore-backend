@@ -1,7 +1,7 @@
 /**
  * Payout Service — handles caller withdrawal requests and admin approval flow.
  */
-import { PayoutRequest, Wallet, WalletTransaction } from '../models';
+import { PayoutRequest, Wallet, WalletTransaction, LedgerEntry } from '../models';
 import { ApiError } from '../utils/ApiError';
 
 /**
@@ -33,6 +33,16 @@ export async function requestPayout(callerId: string, data: {
     balanceAfter: wallet.balance,
     description: 'Withdrawal request (held)',
     referenceType: 'payout_request',
+  });
+
+  await LedgerEntry.create({
+    userId: callerId,
+    type: 'withdrawal',
+    amountPaise: Math.round(data.amount * 100),
+    balanceAfterPaise: Math.round(wallet.balance * 100),
+    referenceId: 'pending',
+    referenceType: 'payout_request',
+    description: `Withdrawal request — ₹${data.amount}`,
   });
 
   const payout = await PayoutRequest.create({
@@ -70,6 +80,16 @@ export async function processPayout(payoutId: string, action: 'approved' | 'reje
         description: 'Payout request rejected — refund',
         referenceId: payoutId,
         referenceType: 'payout_request',
+      });
+
+      await LedgerEntry.create({
+        userId: payout.callerId,
+        type: 'refund',
+        amountPaise: Math.round(payout.amount * 100),
+        balanceAfterPaise: Math.round(wallet.balance * 100),
+        referenceId: payoutId,
+        referenceType: 'payout_request',
+        description: `Payout rejected — refund ₹${payout.amount}`,
       });
     }
   }

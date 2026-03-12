@@ -11,7 +11,7 @@
  */
 import { Queue, Worker } from 'bullmq';
 import { redis } from '../config/redis';
-import { CallSession } from '../models';
+import { CallSession, LedgerEntry } from '../models';
 import * as walletService from '../services/walletService';
 import * as callService from '../services/callService';
 import {
@@ -26,12 +26,16 @@ const QUEUE_NAME = 'billing';
 const JOB_NAME = 'billing-tick';
 
 // ─── Queue setup ────────────────────────────────────────────────────────────
+const redisConnection = process.env.REDIS_URL
+  ? { url: process.env.REDIS_URL }
+  : {
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password,
+    };
+
 export const billingQueue = new Queue(QUEUE_NAME, {
-  connection: {
-    host: config.redis.host,
-    port: config.redis.port,
-    password: config.redis.password,
-  },
+  connection: redisConnection as any,
 });
 
 /**
@@ -62,11 +66,7 @@ export async function startBillingWorker(): Promise<void> {
       }
     },
     {
-      connection: {
-        host: config.redis.host,
-        port: config.redis.port,
-        password: config.redis.password,
-      },
+      connection: redisConnection as any,
       concurrency: 1, // sequential billing to avoid race conditions
     },
   );
@@ -111,14 +111,21 @@ async function processCallBilling(session: any): Promise<void> {
   const callerId = session.callerId.toString();
   const interval = config.platform.billingIntervalSeconds;
 
-  // Calculate charge for this tick: pricePerMinute / (60 / interval)
+  // === Paise-based integer arithmetic to avoid floating-point drift ===
   const ticksPerMinute = 60 / interval;
-  const chargePerTick = session.pricePerMinute / ticksPerMinute;
+  const pricePerMinutePaise = Math.round(session.pricePerMinute * 100);
+  const chargePerTickPaise = Math.round(pricePerMinutePaise / ticksPerMinute);
 
-  // Platform commission
+  // Platform commission (calculated in paise, rounded)
   const commissionRate = config.platform.commissionPercent / 100;
-  const commission = chargePerTick * commissionRate;
-  const callerEarning = chargePerTick - commission;
+  const commissionPaise = Math.round(chargePerTickPaise * commissionRate);
+  // Caller earning = exact remainder after commission (no floating-point gap)
+  const callerEarningPaise = chargePerTickPaise - commissionPaise;
+
+  // Convert back to rupees for storage
+  const chargePerTick = chargePerTickPaise / 100;
+  const commission = commissionPaise / 100;
+  const callerEarning = callerEarningPaise / 100;
 
   // 1. Attempt to deduct from customer wallet
   const deductResult = await walletService.deductForCall(customerId, chargePerTick, callId);
@@ -133,9 +140,43 @@ async function processCallBilling(session: any): Promise<void> {
   }
 
   // 2. Add earnings to caller wallet
-  await walletService.addEarnings(callerId, callerEarning, callId);
+  const earningResult = await walletService.addEarnings(callerId, callerEarning, callId);
 
-  // 3. Update session running totals
+  // 3. Write immutable ledger entries (customer deduction, caller earning, platform commission)
+  await Promise.all([
+    LedgerEntry.create({
+      userId: customerId,
+      counterpartyId: callerId,
+      type: 'call_deduction',
+      amountPaise: chargePerTickPaise,
+      balanceAfterPaise: Math.round(deductResult.balance * 100),
+      referenceId: callId,
+      referenceType: 'call_session',
+      description: `Call charge tick — ₹${chargePerTick}`,
+    }),
+    LedgerEntry.create({
+      userId: callerId,
+      counterpartyId: customerId,
+      type: 'call_earning',
+      amountPaise: callerEarningPaise,
+      balanceAfterPaise: Math.round(earningResult.balance * 100),
+      referenceId: callId,
+      referenceType: 'call_session',
+      description: `Call earning tick — ₹${callerEarning}`,
+    }),
+    LedgerEntry.create({
+      userId: callerId,
+      counterpartyId: customerId,
+      type: 'platform_commission',
+      amountPaise: commissionPaise,
+      balanceAfterPaise: 0, // platform account — not tracked as a user wallet
+      referenceId: callId,
+      referenceType: 'call_session',
+      description: `Platform commission tick — ₹${commission}`,
+    }),
+  ]);
+
+  // 4. Update session running totals
   const now = new Date();
   const durationSeconds = Math.floor(
     (now.getTime() - (session.startTime?.getTime() || now.getTime())) / 1000,
@@ -147,7 +188,7 @@ async function processCallBilling(session: any): Promise<void> {
   session.durationSeconds = durationSeconds;
   await session.save();
 
-  // 4. Emit billing tick to both parties via WebSocket
+  // 5. Emit billing tick to both parties via WebSocket
   emitBillingTick(customerId, callerId, {
     callId,
     durationSeconds,
@@ -156,6 +197,6 @@ async function processCallBilling(session: any): Promise<void> {
     callerEarnings: session.callerEarnings,
   });
 
-  // 5. Emit balance updates
+  // 6. Emit balance updates
   emitBalanceUpdate(customerId, deductResult.balance);
 }
