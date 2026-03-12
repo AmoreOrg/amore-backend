@@ -140,9 +140,30 @@ export async function endCall(callId: string, userId: string, reason = 'user_end
     session.callerId.toString() === userId || session.customerId.toString() === userId;
   if (!isParticipant) throw ApiError.forbidden('Not a participant in this call');
 
-  if (session.status !== 'active') throw ApiError.badRequest('Call is not active');
+  if (!['active', 'ringing'].includes(session.status)) {
+    throw ApiError.badRequest('Call is not active or ringing');
+  }
 
   const endTime = new Date();
+
+  // If call was still ringing (never accepted), mark as cancelled with 0 duration
+  if (session.status === 'ringing') {
+    session.status = 'cancelled';
+    session.endTime = endTime;
+    session.durationSeconds = 0;
+    session.endReason = reason === 'user_ended' ? 'cancelled_before_accept' : reason;
+    await session.save();
+
+    await CallEvent.create({
+      callSessionId: session._id,
+      event: 'call_cancelled',
+      data: { userId, reason: session.endReason },
+    });
+
+    logger.info(`Call cancelled: ${callId} (was still ringing)`);
+    return session;
+  }
+
   const durationMs = endTime.getTime() - (session.startTime?.getTime() || endTime.getTime());
   const durationSeconds = Math.floor(durationMs / 1000);
 
